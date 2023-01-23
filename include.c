@@ -6,90 +6,111 @@
 
 #ifndef NO_HASH_INCLUDE
 
+char listIncludes=1;
+/* a list of libraries we can include */
+struct IncludeLibrary
+{
+    char *IncludeName;
+    void (*SetupFunction)(void);
+    struct LibraryFunction *FuncList;
+    const char *SetupCSource;
+    struct IncludeLibrary *NextLib;
+};
+
+struct IncludeLibrary *IncludeLibList = NULL;
+void sprint(char * what);
 
 /* initialise the built-in include libraries */
-void IncludeInit(Picoc *pc)
+void IncludeInit()
 {
 #ifndef BUILTIN_MINI_STDLIB
-    IncludeRegister(pc, "ctype.h", NULL, &StdCtypeFunctions[0], NULL);
-    IncludeRegister(pc, "errno.h", &StdErrnoSetupFunc, NULL, NULL);
-# ifndef NO_FP
-    IncludeRegister(pc, "math.h", &MathSetupFunc, &MathFunctions[0], NULL);
-# endif
-    IncludeRegister(pc, "stdbool.h", &StdboolSetupFunc, NULL, StdboolDefs);
-    IncludeRegister(pc, "stdio.h", &StdioSetupFunc, &StdioFunctions[0], StdioDefs);
-    IncludeRegister(pc, "stdlib.h", &StdlibSetupFunc, &StdlibFunctions[0], NULL);
-    IncludeRegister(pc, "string.h", &StringSetupFunc, &StringFunctions[0], NULL);
-    IncludeRegister(pc, "time.h", &StdTimeSetupFunc, &StdTimeFunctions[0], StdTimeDefs);
-# ifndef WIN32
-    IncludeRegister(pc, "unistd.h", &UnistdSetupFunc, &UnistdFunctions[0], UnistdDefs);
-# endif
+//Ssend("In IncludeInit\n");
+    IncludeRegister("ctype.h", NULL, &StdCtypeFunctions[0], NULL);
+    IncludeRegister("errno.h", &StdErrnoSetupFunc, NULL, NULL);
+#ifndef NO_FP
+    IncludeRegister("math.h", &MathSetupFunc, &MathFunctions[0], NULL);
+#endif
+    IncludeRegister("stdbool.h", &StdboolSetupFunc, NULL, StdboolDefs);
+    IncludeRegister("stdio.h", &StdioSetupFunc, &StdioFunctions[0], StdioDefs);
+    IncludeRegister("stdlib.h", &StdlibSetupFunc, &StdlibFunctions[0], NULL);
+    IncludeRegister("string.h", &StringSetupFunc, &StringFunctions[0], NULL);
+    IncludeRegister("time.h", &StdTimeSetupFunc, &StdTimeFunctions[0], StdTimeDefs);
+//    IncludeRegister("unistd.h", &UnistdSetupFunc, &UnistdFunctions[0], UnistdDefs);
 #endif
 }
 
 /* clean up space used by the include system */
-void IncludeCleanup(Picoc *pc)
+void IncludeCleanup()
 {
-    struct IncludeLibrary *ThisInclude = pc->IncludeLibList;
+    struct IncludeLibrary *ThisInclude = IncludeLibList;
     struct IncludeLibrary *NextInclude;
     
     while (ThisInclude != NULL)
     {
         NextInclude = ThisInclude->NextLib;
-        HeapFreeMem(pc, ThisInclude);
+        HeapFreeMem(ThisInclude);
         ThisInclude = NextInclude;
     }
 
-    pc->IncludeLibList = NULL;
+    IncludeLibList = NULL;
 }
 
 /* register a new build-in include file */
-void IncludeRegister(Picoc *pc, const char *IncludeName, void (*SetupFunction)(Picoc *pc), struct LibraryFunction *FuncList, const char *SetupCSource)
+void IncludeRegister(const char *IncludeName, void (*SetupFunction)(void), struct LibraryFunction *FuncList, const char *SetupCSource)
 {
-    struct IncludeLibrary *NewLib = HeapAllocMem(pc, sizeof(struct IncludeLibrary));
-    NewLib->IncludeName = TableStrRegister(pc, IncludeName);
+    struct IncludeLibrary *NewLib = HeapAllocMem(sizeof(struct IncludeLibrary));
+    NewLib->IncludeName = TableStrRegister(IncludeName);
     NewLib->SetupFunction = SetupFunction;
     NewLib->FuncList = FuncList;
     NewLib->SetupCSource = SetupCSource;
-    NewLib->NextLib = pc->IncludeLibList;
-    pc->IncludeLibList = NewLib;
+    NewLib->NextLib = IncludeLibList;
+    IncludeLibList = NewLib;
 }
 
 /* include all of the system headers */
-void PicocIncludeAllSystemHeaders(Picoc *pc)
+void PicocIncludeAllSystemHeaders(int inctmpl)
 {
-    struct IncludeLibrary *ThisInclude = pc->IncludeLibList;
-    
-    for (; ThisInclude != NULL; ThisInclude = ThisInclude->NextLib)
-        IncludeFile(pc, ThisInclude->IncludeName);
-}
+    //Ssend("In PicocIncludeAllSystemHeaders\n");//Ssend("another line\n");
+    struct IncludeLibrary *ThisInclude = IncludeLibList;
+    for (; ThisInclude != NULL; ThisInclude = ThisInclude->NextLib) {
+        //Ssend(ThisInclude->IncludeName);
+        IncludeFile(ThisInclude->IncludeName);
+    }
+    if (inctmpl==1)
+    {    
 
+		      IncludeFile("usefull.h");
+    }
+}
+char fileExists(char * fileName);
 /* include one of a number of predefined libraries, or perhaps an actual file */
-void IncludeFile(Picoc *pc, char *FileName)
+void IncludeFile(char *FileName)
 {
+  if (fileExists(FileName)==0) return;
+  listIncludes=0;
     struct IncludeLibrary *LInclude;
     
     /* scan for the include file name to see if it's in our list of predefined includes */
-    for (LInclude = pc->IncludeLibList; LInclude != NULL; LInclude = LInclude->NextLib)
+    for (LInclude = IncludeLibList; LInclude != NULL; LInclude = LInclude->NextLib)
     {
         if (strcmp(LInclude->IncludeName, FileName) == 0)
         {
             /* found it - protect against multiple inclusion */
-            if (!VariableDefined(pc, FileName))
+            if (!VariableDefined(FileName))
             {
-                VariableDefine(pc, NULL, FileName, NULL, &pc->VoidType, FALSE);
+                VariableDefine(NULL, FileName, NULL, &VoidType, FALSE);
                 
                 /* run an extra startup function if there is one */
                 if (LInclude->SetupFunction != NULL)
-                    (*LInclude->SetupFunction)(pc);
+                    (*LInclude->SetupFunction)();
                 
                 /* parse the setup C source code - may define types etc. */
                 if (LInclude->SetupCSource != NULL)
-                    PicocParse(pc, FileName, LInclude->SetupCSource, strlen(LInclude->SetupCSource), TRUE, TRUE, FALSE, FALSE);
+                    PicocParse(FileName, LInclude->SetupCSource, strlen(LInclude->SetupCSource), TRUE, TRUE, FALSE, FALSE);
                 
                 /* set up the library functions */
                 if (LInclude->FuncList != NULL)
-                    LibraryAdd(pc, &pc->GlobalTable, FileName, LInclude->FuncList);
+                    LibraryAdd(&GlobalTable, FileName, LInclude->FuncList);
             }
             
             return;
@@ -97,7 +118,8 @@ void IncludeFile(Picoc *pc, char *FileName)
     }
     
     /* not a predefined file, read a real file */
-    PicocPlatformScanFile(pc, FileName);
+    PicocPlatformScanFile(FileName);
+    listIncludes=1;
 }
 
 #endif /* NO_HASH_INCLUDE */

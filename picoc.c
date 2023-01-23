@@ -6,100 +6,67 @@
 
 /* platform-dependent code for running programs is in this file */
 
-#if defined(UNIX_HOST) || defined(WIN32)
+/**************************************************************************
+ * Copyright
+---------
+
+picoc is published under the "New BSD License".
+http://www.opensource.org/licenses/bsd-license.php
+
+
+Copyright (c) 2009-2011, Zik Saleeba
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without 
+modification, are permitted provided that the following conditions are 
+met:
+
+    * Redistributions of source code must retain the above copyright 
+      notice, this list of conditions and the following disclaimer.
+      
+    * Redistributions in binary form must reproduce the above copyright 
+      notice, this list of conditions and the following disclaimer in 
+      the documentation and/or other materials provided with the 
+      distribution.
+      
+    * Neither the name of the Zik Saleeba nor the names of its 
+      contributors may be used to endorse or promote products derived 
+      from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS 
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT 
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR 
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT 
+OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT 
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, 
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY 
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT 
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE 
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+************************************************************************/
+
+
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-
-#define PICOC_STACK_SIZE (128*1024)              /* space for the the stack */
-
-int main(int argc, char **argv)
+extern char * Prompt;
+/* space for the the stack */
+extern char buf[BUFSIZE];
+int picoc_main()
 {
-    int ParamCount = 1;
+    int i;
+    for (i=0;i<BUFSIZE;i++) buf[i]=0;
     int DontRunMain = FALSE;
-    int StackSize = getenv("STACKSIZE") ? atoi(getenv("STACKSIZE")) : PICOC_STACK_SIZE;
-    Picoc pc;
+    int StackSize = HEAP_SIZE;
+    PicocInitialise(StackSize);
     
-    if (argc < 2)
-    {
-        printf("Format: picoc <csource1.c>... [- <arg1>...]    : run a program (calls main() to start it)\n"
-               "        picoc -s <csource1.c>... [- <arg1>...] : script mode - runs the program without calling main()\n"
-               "        picoc -i                               : interactive mode\n");
-        exit(1);
-    }
-    
-    PicocInitialise(&pc, StackSize);
-    
-    if (strcmp(argv[ParamCount], "-s") == 0 || strcmp(argv[ParamCount], "-m") == 0)
-    {
-        DontRunMain = TRUE;
-        PicocIncludeAllSystemHeaders(&pc);
-        ParamCount++;
-    }
-        
-    if (argc > ParamCount && strcmp(argv[ParamCount], "-i") == 0)
-    {
-        PicocIncludeAllSystemHeaders(&pc);
-        PicocParseInteractive(&pc);
-    }
-    else
-    {
-        if (PicocPlatformSetExitPoint(&pc))
-        {
-            PicocCleanup(&pc);
-            return pc.PicocExitValue;
-        }
-        
-        for (; ParamCount < argc && strcmp(argv[ParamCount], "-") != 0; ParamCount++)
-            PicocPlatformScanFile(&pc, argv[ParamCount]);
-        
-        if (!DontRunMain)
-            PicocCallMain(&pc, argc - ParamCount, &argv[ParamCount]);
-    }
-    
-    PicocCleanup(&pc);
-    return pc.PicocExitValue;
-}
-#else
-# ifdef SURVEYOR_HOST
-#  define HEAP_SIZE C_HEAPSIZE
-#  include <setjmp.h>
-#  include "../srv.h"
-#  include "../print.h"
-#  include "../string.h"
-
-int picoc(char *SourceStr)
-{   
-    char *pos;
-
-    PicocInitialise(HEAP_SIZE);
-
-    if (SourceStr)
-    {
-        for (pos = SourceStr; *pos != 0; pos++)
-        {
-            if (*pos == 0x1a)
-            {
-                *pos = 0x20;
-            }
-        }
-    }
-
-    PicocExitBuf[40] = 0;
-    PicocPlatformSetExitPoint();
-    if (PicocExitBuf[40]) {
-        printf("Leaving PicoC\n\r");
-        PicocCleanup();
-        return PicocExitValue;
-    }
-
-    if (SourceStr)   
-        PicocParse("nofile", SourceStr, strlen(SourceStr), TRUE, TRUE, FALSE);
-
+    Prompt = "picoc> ";
+    PicocIncludeAllSystemHeaders(1);
     PicocParseInteractive();
-    PicocCleanup();
     
+    
+    PicocCleanup();
     return PicocExitValue;
 }
-# endif
-#endif

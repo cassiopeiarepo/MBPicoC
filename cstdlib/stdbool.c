@@ -1,5 +1,5 @@
 /* string.h library for large systems - small embedded systems use clibrary.c instead */
-#include "../interpreter.h"
+#include "interpreter.h"
 
 #ifndef BUILTIN_MINI_STDLIB
 
@@ -11,12 +11,12 @@ static int falseValue = 0;
 const char StdboolDefs[] = "typedef int bool;";
 
 /* creates various system-dependent definitions */
-void StdboolSetupFunc(Picoc *pc)
+void StdboolSetupFunc(void)
 {
     /* defines */
-    VariableDefinePlatformVar(pc, NULL, "true", &pc->IntType, (union AnyValue *)&trueValue, FALSE);
-    VariableDefinePlatformVar(pc, NULL, "false", &pc->IntType, (union AnyValue *)&falseValue, FALSE);
-    VariableDefinePlatformVar(pc, NULL, "__bool_true_false_are_defined", &pc->IntType, (union AnyValue *)&trueValue, FALSE);
+    VariableDefinePlatformVar(NULL, "true", &IntType, (union AnyValue *)&trueValue, FALSE);
+    VariableDefinePlatformVar(NULL, "false", &IntType, (union AnyValue *)&falseValue, FALSE);
+    VariableDefinePlatformVar(NULL, "__bool_true_false_are_defined", &IntType, (union AnyValue *)&trueValue, FALSE);
 }
 
 #endif /* !BUILTIN_MINI_STDLIB */

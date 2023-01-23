@@ -1,9 +1,9 @@
 /* stdlib.h library for large systems - small embedded systems use clibrary.c instead */
-#include "../interpreter.h"
+#include "interpreter.h"
 
 #ifndef BUILTIN_MINI_STDLIB
 
-static int Stdlib_ZeroValue = 0;
+static int ZeroValue = 0;
 
 #ifndef NO_FP
 void StdlibAtof(struct ParseState *Parser, struct Value *ReturnValue, struct Value **Param, int NumArgs)
@@ -12,7 +12,7 @@ void StdlibAtof(struct ParseState *Parser, struct Value *ReturnValue, struct Val
 }
 #endif
 
-void StdlibAtoi(struct ParseState *Parser, struct Value *ReturnValue, struct Value **Param, int NumArgs)
+void Stdlibatoi(struct ParseState *Parser, struct Value *ReturnValue, struct Value **Param, int NumArgs)
 {
     ReturnValue->Val->Integer = atoi(Param[0]->Val->Pointer);
 }
@@ -68,7 +68,7 @@ void StdlibSrand(struct ParseState *Parser, struct Value *ReturnValue, struct Va
 {
     srand(Param[0]->Val->Integer);
 }
-
+/*
 void StdlibAbort(struct ParseState *Parser, struct Value *ReturnValue, struct Value **Param, int NumArgs)
 {
     ProgramFail(Parser, "abort");
@@ -76,7 +76,7 @@ void StdlibAbort(struct ParseState *Parser, struct Value *ReturnValue, struct Va
 
 void StdlibExit(struct ParseState *Parser, struct Value *ReturnValue, struct Value **Param, int NumArgs)
 {
-    PlatformExit(Parser->pc, Param[0]->Val->Integer);
+    PlatformExit(Param[0]->Val->Integer);
 }
 
 void StdlibGetenv(struct ParseState *Parser, struct Value *ReturnValue, struct Value **Param, int NumArgs)
@@ -84,11 +84,12 @@ void StdlibGetenv(struct ParseState *Parser, struct Value *ReturnValue, struct V
     ReturnValue->Val->Pointer = getenv(Param[0]->Val->Pointer);
 }
 
+
 void StdlibSystem(struct ParseState *Parser, struct Value *ReturnValue, struct Value **Param, int NumArgs)
 {
     ReturnValue->Val->Integer = system(Param[0]->Val->Pointer);
 }
-
+*/
 #if 0
 void StdlibBsearch(struct ParseState *Parser, struct Value *ReturnValue, struct Value **Param, int NumArgs)
 {
@@ -148,10 +149,10 @@ struct LibraryFunction StdlibFunctions[] =
     { StdlibFree,           "void free(void *);" },
     { StdlibRand,           "int rand();" },
     { StdlibSrand,          "void srand(int);" },
-    { StdlibAbort,          "void abort();" },
-    { StdlibExit,           "void exit(int);" },
-    { StdlibGetenv,         "char *getenv(char *);" },
-    { StdlibSystem,         "int system(char *);" },
+  //  { StdlibAbort,          "void abort();" },
+  //  { StdlibExit,           "void exit(int);" },
+  //  { StdlibGetenv,         "char *getenv(char *);" },
+  //  { StdlibSystem,         "int system(char *);" },
 /*    { StdlibBsearch,        "void *bsearch(void *,void *,int,int,int (*)());" }, */
 /*    { StdlibQsort,          "void *qsort(void *,int,int,int (*)());" }, */
     { StdlibAbs,            "int abs(int);" },
@@ -164,11 +165,11 @@ struct LibraryFunction StdlibFunctions[] =
 };
 
 /* creates various system-dependent definitions */
-void StdlibSetupFunc(Picoc *pc)
+void StdlibSetupFunc(void)
 {
     /* define NULL, TRUE and FALSE */
-    if (!VariableDefined(pc, TableStrRegister(pc, "NULL")))
-        VariableDefinePlatformVar(pc, NULL, "NULL", &pc->IntType, (union AnyValue *)&Stdlib_ZeroValue, FALSE);
+    if (!VariableDefined(TableStrRegister("NULL")))
+        VariableDefinePlatformVar(NULL, "NULL", &IntType, (union AnyValue *)&ZeroValue, FALSE);
 }
 
 #endif /* !BUILTIN_MINI_STDLIB */

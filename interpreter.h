@@ -4,15 +4,20 @@
  
 #ifndef INTERPRETER_H
 #define INTERPRETER_H
-
+#include "picoc.h"
 #include "platform.h"
 
-
+#define BUILTIN_MINI_STDLIB
+#define USE_MALLOC_STACK
+#define USE_MALLOC_HEAP
 /* handy definitions */
 #ifndef TRUE
 #define TRUE 1
 #define FALSE 0
 #endif
+//#define DEBUG_EXPRESSIONS
+//#define DEBUG_LEXER
+//#define DEBUG_HEAP
 
 #ifndef NULL
 #define NULL 0
@@ -21,14 +26,10 @@
 #ifndef min
 #define min(x,y) (((x)<(y))?(x):(y))
 #endif
-
+extern char buf[BUFSIZE];
 #define MEM_ALIGN(x) (((x) + sizeof(ALIGN_TYPE) - 1) & ~(sizeof(ALIGN_TYPE)-1))
 
 #define GETS_BUF_MAX 256
-
-/* for debugging */
-#define PRINT_SOURCE_POS ({ PrintSourceTextErrorLine(Parser->pc->CStdOut, Parser->FileName, Parser->SourceText, Parser->Line, Parser->CharacterPos); PlatformPrintf(Parser->pc->CStdOut, "\n"); })
-#define PRINT_TYPE(typ) PlatformPrintf(Parser->pc->CStdOut, "%t\n", typ);
 
 /* small processors use a simplified FILE * for stdio, otherwise use the system FILE * */
 #ifdef BUILTIN_MINI_STDLIB
@@ -56,9 +57,6 @@ typedef FILE IOFILE;
 
 
 struct Table;
-struct Picoc_Struct;
-
-typedef struct Picoc_Struct Picoc;
 
 /* lexical tokens */
 enum LexToken
@@ -115,7 +113,6 @@ enum RunMode
 /* parser state - has all this detail so we can parse nested files */
 struct ParseState
 {
-    Picoc *pc;                  /* the picoc instance this parser is a part of */
     const unsigned char *Pos;   /* the character position in the source text */
     char *FileName;             /* what file we're executing (registered string) */
     short int Line;             /* line number we're executing */
@@ -127,7 +124,6 @@ struct ParseState
     short int HashIfLevel;      /* how many "if"s we're nested down */
     short int HashIfEvaluateToLevel;    /* if we're not evaluating an if branch, what the last evaluated level was */
     char DebugMode;             /* debugging mode */
-    int ScopeID;                /* for keeping track of local variables (free them after they go out of scope) */
 };
 
 /* values */
@@ -136,11 +132,10 @@ enum BaseType
     TypeVoid,                   /* no type */
     TypeInt,                    /* integer */
     TypeShort,                  /* short integer */
-    TypeChar,                   /* a single character (signed) */
+    TypeChar,                   /* a single character (unsigned) */
     TypeLong,                   /* long integer */
     TypeUnsignedInt,            /* unsigned integer */
     TypeUnsignedShort,          /* unsigned short integer */
-    TypeUnsignedChar,           /* unsigned 8-bit number */ /* must be before unsigned long */
     TypeUnsignedLong,           /* unsigned long integer */
 #ifndef NO_FP
     TypeFP,                     /* floating point */
@@ -195,14 +190,13 @@ struct MacroDef
 /* values */
 union AnyValue
 {
-    char Character;
+    unsigned char Character;
     short ShortInteger;
     int Integer;
     long LongInteger;
     unsigned short UnsignedShortInteger;
     unsigned int UnsignedInteger;
     unsigned long UnsignedLongInteger;
-    unsigned char UnsignedCharacter;
     char *Identifier;
     char ArrayMem[2];               /* placeholder for where the data starts, doesn't point to it */
     struct ValueType *Typ;
@@ -219,12 +213,9 @@ struct Value
     struct ValueType *Typ;          /* the type of this value */
     union AnyValue *Val;            /* pointer to the AnyValue which holds the actual content */
     struct Value *LValueFrom;       /* if an LValue, this is a Value our LValue is contained within (or NULL) */
-    char ValOnHeap;                 /* this Value is on the heap */
+    char ValOnHeap;                 /* the AnyValue is on the heap (but this Value is on the stack) */
     char ValOnStack;                /* the AnyValue is on the stack along with this Value */
-    char AnyValOnHeap;              /* the AnyValue is separately allocated from the Value on the heap */
     char IsLValue;                  /* is modifiable and is allocated somewhere we can usefully modify it */
-    int ScopeID;                    /* to know when it goes out of scope */
-    char OutOfScope;
 };
 
 /* hash table data structure */
@@ -327,179 +318,63 @@ struct OutputStream
 /* possible results of parsing a statement */
 enum ParseResult { ParseResultEOF, ParseResultError, ParseResultOk };
 
-/* a chunk of heap-allocated tokens we'll cleanup when we're done */
-struct CleanupTokenNode
-{
-    void *Tokens;
-    const char *SourceText;
-    struct CleanupTokenNode *Next;
-};
-
-/* linked list of lexical tokens used in interactive mode */
-struct TokenLine
-{
-    struct TokenLine *Next;
-    unsigned char *Tokens;
-    int NumBytes;
-};
-
-
-/* a list of libraries we can include */
-struct IncludeLibrary
-{
-    char *IncludeName;
-    void (*SetupFunction)(Picoc *pc);
-    struct LibraryFunction *FuncList;
-    const char *SetupCSource;
-    struct IncludeLibrary *NextLib;
-};
-
-#define FREELIST_BUCKETS 8                          /* freelists for 4, 8, 12 ... 32 byte allocs */
-#define SPLIT_MEM_THRESHOLD 16                      /* don't split memory which is close in size */
-#define BREAKPOINT_TABLE_SIZE 21
-
-
-/* the entire state of the picoc system */
-struct Picoc_Struct
-{
-    /* parser global data */
-    struct Table GlobalTable;
-    struct CleanupTokenNode *CleanupTokenList;
-    struct TableEntry *GlobalHashTable[GLOBAL_TABLE_SIZE];
-    
-    /* lexer global data */
-    struct TokenLine *InteractiveHead;
-    struct TokenLine *InteractiveTail;
-    struct TokenLine *InteractiveCurrentLine;
-    int LexUseStatementPrompt;
-    union AnyValue LexAnyValue;
-    struct Value LexValue;
-    struct Table ReservedWordTable;
-    struct TableEntry *ReservedWordHashTable[RESERVED_WORD_TABLE_SIZE];
-
-    /* the table of string literal values */
-    struct Table StringLiteralTable;
-    struct TableEntry *StringLiteralHashTable[STRING_LITERAL_TABLE_SIZE];
-    
-    /* the stack */
-    struct StackFrame *TopStackFrame;
-
-    /* the value passed to exit() */
-    int PicocExitValue;
-
-    /* a list of libraries we can include */
-    struct IncludeLibrary *IncludeLibList;
-
-    /* heap memory */
-#ifdef USE_MALLOC_STACK
-    unsigned char *HeapMemory;          /* stack memory since our heap is malloc()ed */
-    void *HeapBottom;                   /* the bottom of the (downward-growing) heap */
-    void *StackFrame;                   /* the current stack frame */
-    void *HeapStackTop;                 /* the top of the stack */
-#else
-# ifdef SURVEYOR_HOST
-    unsigned char *HeapMemory;          /* all memory - stack and heap */
-    void *HeapBottom;                   /* the bottom of the (downward-growing) heap */
-    void *StackFrame;                   /* the current stack frame */
-    void *HeapStackTop;                 /* the top of the stack */
-    void *HeapMemStart;
-# else
-    unsigned char HeapMemory[HEAP_SIZE];  /* all memory - stack and heap */
-    void *HeapBottom;                   /* the bottom of the (downward-growing) heap */
-    void *StackFrame;                   /* the current stack frame */
-    void *HeapStackTop;                 /* the top of the stack */
-# endif
+/* globals */
+extern void *HeapStackTop;
+extern struct Table GlobalTable;
+extern struct StackFrame *TopStackFrame;
+extern struct ValueType UberType;
+extern struct ValueType IntType;
+extern struct ValueType CharType;
+#ifndef NO_FP
+extern struct ValueType FPType;
 #endif
-
-    struct AllocNode *FreeListBucket[FREELIST_BUCKETS];      /* we keep a pool of freelist buckets to reduce fragmentation */
-    struct AllocNode *FreeListBig;                           /* free memory which doesn't fit in a bucket */
-
-    /* types */    
-    struct ValueType UberType;
-    struct ValueType IntType;
-    struct ValueType ShortType;
-    struct ValueType CharType;
-    struct ValueType LongType;
-    struct ValueType UnsignedIntType;
-    struct ValueType UnsignedShortType;
-    struct ValueType UnsignedLongType;
-    struct ValueType UnsignedCharType;
-    #ifndef NO_FP
-    struct ValueType FPType;
-    #endif
-    struct ValueType VoidType;
-    struct ValueType TypeType;
-    struct ValueType FunctionType;
-    struct ValueType MacroType;
-    struct ValueType EnumType;
-    struct ValueType GotoLabelType;
-    struct ValueType *CharPtrType;
-    struct ValueType *CharPtrPtrType;
-    struct ValueType *CharArrayType;
-    struct ValueType *VoidPtrType;
-
-    /* debugger */
-    struct Table BreakpointTable;
-    struct TableEntry *BreakpointHashTable[BREAKPOINT_TABLE_SIZE];
-    int BreakpointCount;
-    int DebugManualBreak;
-    
-    /* C library */
-    int BigEndian;
-    int LittleEndian;
-
-    IOFILE *CStdOut;
-    IOFILE CStdOutBase;
-
-    /* the picoc version string */
-    const char *VersionString;
-    
-    /* exit longjump buffer */
-#if defined(UNIX_HOST) || defined(WIN32)
-    jmp_buf PicocExitBuf;
-#endif
-#ifdef SURVEYOR_HOST
-    int PicocExitBuf[41];
-#endif
-    
-    /* string table */
-    struct Table StringTable;
-    struct TableEntry *StringHashTable[STRING_TABLE_SIZE];
-    char *StrEmpty;
-};
+extern struct ValueType VoidType;
+extern struct ValueType TypeType;
+extern struct ValueType FunctionType;
+extern struct ValueType MacroType;
+extern struct ValueType GotoLabelType;
+extern struct ValueType *CharPtrType;
+extern struct ValueType *CharPtrPtrType;
+extern struct ValueType *CharArrayType;
+extern struct ValueType *VoidPtrType;
+extern char *StrEmpty;
+extern struct PointerValue NULLPointer;
+extern struct LibraryFunction CLibrary[];
+extern struct LibraryFunction PlatformLibrary[];
+extern IOFILE *CStdOut;
 
 /* table.c */
-void TableInit(Picoc *pc);
-char *TableStrRegister(Picoc *pc, const char *Str);
-char *TableStrRegister2(Picoc *pc, const char *Str, int Len);
+void TableInit();
+char *TableStrRegister(const char *Str);
+char *TableStrRegister2(const char *Str, int Len);
 void TableInitTable(struct Table *Tbl, struct TableEntry **HashTable, int Size, int OnHeap);
-int TableSet(Picoc *pc, struct Table *Tbl, char *Key, struct Value *Val, const char *DeclFileName, int DeclLine, int DeclColumn);
+int TableSet(struct Table *Tbl, char *Key, struct Value *Val, const char *DeclFileName, int DeclLine, int DeclColumn);
 int TableGet(struct Table *Tbl, const char *Key, struct Value **Val, const char **DeclFileName, int *DeclLine, int *DeclColumn);
-struct Value *TableDelete(Picoc *pc, struct Table *Tbl, const char *Key);
-char *TableSetIdentifier(Picoc *pc, struct Table *Tbl, const char *Ident, int IdentLen);
-void TableStrFree(Picoc *pc);
+struct Value *TableDelete(struct Table *Tbl, const char *Key);
+char *TableSetIdentifier(struct Table *Tbl, const char *Ident, int IdentLen);
+void TableStrFree();
 
 /* lex.c */
-void LexInit(Picoc *pc);
-void LexCleanup(Picoc *pc);
-void *LexAnalyse(Picoc *pc, const char *FileName, const char *Source, int SourceLen, int *TokenLen);
-void LexInitParser(struct ParseState *Parser, Picoc *pc, const char *SourceText, void *TokenSource, char *FileName, int RunIt, int SetDebugMode);
+void LexInit();
+void LexCleanup();
+void *LexAnalyse(const char *FileName, const char *Source, int SourceLen, int *TokenLen);
+void LexInitParser(struct ParseState *Parser, const char *SourceText, void *TokenSource, char *FileName, int RunIt, int SetDebugMode);
 enum LexToken LexGetToken(struct ParseState *Parser, struct Value **Value, int IncPos);
 enum LexToken LexRawPeekToken(struct ParseState *Parser);
 void LexToEndOfLine(struct ParseState *Parser);
 void *LexCopyTokens(struct ParseState *StartParser, struct ParseState *EndParser);
-void LexInteractiveClear(Picoc *pc, struct ParseState *Parser);
-void LexInteractiveCompleted(Picoc *pc, struct ParseState *Parser);
-void LexInteractiveStatementPrompt(Picoc *pc);
+void LexInteractiveClear(struct ParseState *Parser);
+void LexInteractiveCompleted(struct ParseState *Parser);
+void LexInteractiveStatementPrompt();
 
 /* parse.c */
 /* the following are defined in picoc.h:
  * void PicocParse(const char *FileName, const char *Source, int SourceLen, int RunIt, int CleanupNow, int CleanupSource);
  * void PicocParseInteractive(); */
-void PicocParseInteractiveNoStartPrompt(Picoc *pc, int EnableDebugger);
+void PicocParseInteractiveNoStartPrompt(int EnableDebugger);
 enum ParseResult ParseStatement(struct ParseState *Parser, int CheckTrailingSemicolon);
 struct Value *ParseFunctionDefinition(struct ParseState *Parser, struct ValueType *ReturnType, char *Identifier);
-void ParseCleanup(Picoc *pc);
+void ParseCleanup();
 void ParserCopyPos(struct ParseState *To, struct ParseState *From);
 void ParserCopy(struct ParseState *To, struct ParseState *From);
 
@@ -514,68 +389,63 @@ double ExpressionCoerceFP(struct Value *Val);
 #endif
 
 /* type.c */
-void TypeInit(Picoc *pc);
-void TypeCleanup(Picoc *pc);
+void TypeInit();
+void TypeCleanup();
 int TypeSize(struct ValueType *Typ, int ArraySize, int Compact);
 int TypeSizeValue(struct Value *Val, int Compact);
 int TypeStackSizeValue(struct Value *Val);
-int TypeLastAccessibleOffset(Picoc *pc, struct Value *Val);
+int TypeLastAccessibleOffset(struct Value *Val);
 int TypeParseFront(struct ParseState *Parser, struct ValueType **Typ, int *IsStatic);
 void TypeParseIdentPart(struct ParseState *Parser, struct ValueType *BasicTyp, struct ValueType **Typ, char **Identifier);
 void TypeParse(struct ParseState *Parser, struct ValueType **Typ, char **Identifier, int *IsStatic);
-struct ValueType *TypeGetMatching(Picoc *pc, struct ParseState *Parser, struct ValueType *ParentType, enum BaseType Base, int ArraySize, const char *Identifier, int AllowDuplicates);
-struct ValueType *TypeCreateOpaqueStruct(Picoc *pc, struct ParseState *Parser, const char *StructName, int Size);
-int TypeIsForwardDeclared(struct ParseState *Parser, struct ValueType *Typ);
+struct ValueType *TypeGetMatching(struct ParseState *Parser, struct ValueType *ParentType, enum BaseType Base, int ArraySize, const char *Identifier, int AllowDuplicates);
+struct ValueType *TypeCreateOpaqueStruct(struct ParseState *Parser, const char *StructName, int Size);
 
 /* heap.c */
-void HeapInit(Picoc *pc, int StackSize);
-void HeapCleanup(Picoc *pc);
-void *HeapAllocStack(Picoc *pc, int Size);
-int HeapPopStack(Picoc *pc, void *Addr, int Size);
-void HeapUnpopStack(Picoc *pc, int Size);
-void HeapPushStackFrame(Picoc *pc);
-int HeapPopStackFrame(Picoc *pc);
-void *HeapAllocMem(Picoc *pc, int Size);
-void HeapFreeMem(Picoc *pc, void *Mem);
+void HeapInit(int StackSize);
+void HeapCleanup();
+void *HeapAllocStack(int Size);
+int HeapPopStack(void *Addr, int Size);
+void HeapUnpopStack(int Size);
+void HeapPushStackFrame();
+int HeapPopStackFrame();
+void *HeapAllocMem(int Size);
+void HeapFreeMem(void *Mem);
 
 /* variable.c */
-void VariableInit(Picoc *pc);
-void VariableCleanup(Picoc *pc);
-void VariableFree(Picoc *pc, struct Value *Val);
-void VariableTableCleanup(Picoc *pc, struct Table *HashTable);
-void *VariableAlloc(Picoc *pc, struct ParseState *Parser, int Size, int OnHeap);
+void VariableInit();
+void VariableCleanup();
+void VariableFree(struct Value *Val);
+void VariableTableCleanup(struct Table *HashTable);
+void *VariableAlloc(struct ParseState *Parser, int Size, int OnHeap);
 void VariableStackPop(struct ParseState *Parser, struct Value *Var);
-struct Value *VariableAllocValueAndData(Picoc *pc, struct ParseState *Parser, int DataSize, int IsLValue, struct Value *LValueFrom, int OnHeap);
-struct Value *VariableAllocValueAndCopy(Picoc *pc, struct ParseState *Parser, struct Value *FromValue, int OnHeap);
-struct Value *VariableAllocValueFromType(Picoc *pc, struct ParseState *Parser, struct ValueType *Typ, int IsLValue, struct Value *LValueFrom, int OnHeap);
+struct Value *VariableAllocValueAndData(struct ParseState *Parser, int DataSize, int IsLValue, struct Value *LValueFrom, int OnHeap);
+struct Value *VariableAllocValueAndCopy(struct ParseState *Parser, struct Value *FromValue, int OnHeap);
+struct Value *VariableAllocValueFromType(struct ParseState *Parser, struct ValueType *Typ, int IsLValue, struct Value *LValueFrom, int OnHeap);
 struct Value *VariableAllocValueFromExistingData(struct ParseState *Parser, struct ValueType *Typ, union AnyValue *FromValue, int IsLValue, struct Value *LValueFrom);
 struct Value *VariableAllocValueShared(struct ParseState *Parser, struct Value *FromValue);
-struct Value *VariableDefine(Picoc *pc, struct ParseState *Parser, char *Ident, struct Value *InitValue, struct ValueType *Typ, int MakeWritable);
+struct Value *VariableDefine(struct ParseState *Parser, char *Ident, struct Value *InitValue, struct ValueType *Typ, int MakeWritable);
 struct Value *VariableDefineButIgnoreIdentical(struct ParseState *Parser, char *Ident, struct ValueType *Typ, int IsStatic, int *FirstVisit);
-int VariableDefined(Picoc *pc, const char *Ident);
-int VariableDefinedAndOutOfScope(Picoc *pc, const char *Ident);
-void VariableRealloc(struct ParseState *Parser, struct Value *FromValue, int NewSize);
-void VariableGet(Picoc *pc, struct ParseState *Parser, const char *Ident, struct Value **LVal);
-void VariableDefinePlatformVar(Picoc *pc, struct ParseState *Parser, char *Ident, struct ValueType *Typ, union AnyValue *FromValue, int IsWritable);
+int VariableDefined(const char *Ident);
+void VariableGet(struct ParseState *Parser, const char *Ident, struct Value **LVal);
+void VariableDefinePlatformVar(struct ParseState *Parser, char *Ident, struct ValueType *Typ, union AnyValue *FromValue, int IsWritable);
 void VariableStackFrameAdd(struct ParseState *Parser, const char *FuncName, int NumParams);
 void VariableStackFramePop(struct ParseState *Parser);
-struct Value *VariableStringLiteralGet(Picoc *pc, char *Ident);
-void VariableStringLiteralDefine(Picoc *pc, char *Ident, struct Value *Val);
+struct Value *VariableStringLiteralGet(char *Ident);
+void VariableStringLiteralDefine(char *Ident, struct Value *Val);
 void *VariableDereferencePointer(struct ParseState *Parser, struct Value *PointerValue, struct Value **DerefVal, int *DerefOffset, struct ValueType **DerefType, int *DerefIsLValue);
-int VariableScopeBegin(struct ParseState * Parser, int* PrevScopeID);
-void VariableScopeEnd(struct ParseState * Parser, int ScopeID, int PrevScopeID);
 
 /* clibrary.c */
-void BasicIOInit(Picoc *pc);
-void LibraryInit(Picoc *pc);
-void LibraryAdd(Picoc *pc, struct Table *GlobalTable, const char *LibraryName, struct LibraryFunction *FuncList);
-void CLibraryInit(Picoc *pc);
-void PrintCh(char OutCh, IOFILE *Stream);
-void PrintSimpleInt(long Num, IOFILE *Stream);
-void PrintInt(long Num, int FieldWidth, int ZeroPad, int LeftJustify, IOFILE *Stream);
-void PrintStr(const char *Str, IOFILE *Stream);
-void PrintFP(double Num, IOFILE *Stream);
-void PrintType(struct ValueType *Typ, IOFILE *Stream);
+void BasicIOInit();
+void LibraryInit();
+void LibraryAdd(struct Table *GlobalTable, const char *LibraryName, struct LibraryFunction *FuncList);
+void CLibraryInit();
+void PrintCh(char OutCh);
+void PrintSimpleInt(long Num);
+void PrintInt(long Num, int FieldWidth, int ZeroPad, int LeftJustify);
+void PrintStr(const char *Str);
+void PrintFP(double Num);
+void PrintType(struct ValueType *Typ);
 void LibPrintf(struct ParseState *Parser, struct Value *ReturnValue, struct Value **Param, int NumArgs);
 
 /* platform.c */
@@ -587,29 +457,30 @@ void LibPrintf(struct ParseState *Parser, struct Value *ReturnValue, struct Valu
  * void PicocPlatformScanFile(const char *FileName);
  * extern int PicocExitValue; */
 void ProgramFail(struct ParseState *Parser, const char *Message, ...);
-void ProgramFailNoParser(Picoc *pc, const char *Message, ...);
 void AssignFail(struct ParseState *Parser, const char *Format, struct ValueType *Type1, struct ValueType *Type2, int Num1, int Num2, const char *FuncName, int ParamNo);
-void LexFail(Picoc *pc, struct LexState *Lexer, const char *Message, ...);
-void PlatformInit(Picoc *pc);
-void PlatformCleanup(Picoc *pc);
+void LexFail(struct LexState *Lexer, const char *Message, ...);
+void PlatformInit();
+void PlatformCleanup();
 char *PlatformGetLine(char *Buf, int MaxLen, const char *Prompt);
 int PlatformGetCharacter();
-void PlatformPutc(unsigned char OutCh, union OutputStreamInfo *);
-void PlatformPrintf(IOFILE *Stream, const char *Format, ...);
-void PlatformVPrintf(IOFILE *Stream, const char *Format, va_list Args);
-void PlatformExit(Picoc *pc, int ExitVal);
-char *PlatformMakeTempName(Picoc *pc, char *TempNameBuffer);
-void PlatformLibraryInit(Picoc *pc);
+void PlatformPutc(unsigned char OutCh, FILE * fout);
+void PlatformErrorPrefix(struct ParseState *Parser);
+void PlatformPrintf(const char *Format, ...);
+void PlatformVPrintf(const char *Format, va_list Args);
+void PlatformExit(int ExitVal);
+char *PlatformMakeTempName(char *TempNameBuffer);
+void PlatformLibraryInit();
 
 /* include.c */
-void IncludeInit(Picoc *pc);
-void IncludeCleanup(Picoc *pc);
-void IncludeRegister(Picoc *pc, const char *IncludeName, void (*SetupFunction)(Picoc *pc), struct LibraryFunction *FuncList, const char *SetupCSource);
-void IncludeFile(Picoc *pc, char *Filename);
+void IncludeInit();
+void IncludeCleanup();
+void IncludeRegister(const char *IncludeName, void (*SetupFunction)(void), struct LibraryFunction *FuncList, const char *SetupCSource);
+void IncludeFile(char *Filename);
 /* the following is defined in picoc.h:
  * void PicocIncludeAllSystemHeaders(); */
- 
+
 /* debug.c */
+extern int DebugManualBreak;
 void DebugInit();
 void DebugCleanup();
 void DebugCheckStatement(struct ParseState *Parser);
@@ -618,38 +489,38 @@ void DebugCheckStatement(struct ParseState *Parser);
 /* stdio.c */
 extern const char StdioDefs[];
 extern struct LibraryFunction StdioFunctions[];
-void StdioSetupFunc(Picoc *pc);
+void StdioSetupFunc(void);
 
 /* math.c */
 extern struct LibraryFunction MathFunctions[];
-void MathSetupFunc(Picoc *pc);
+void MathSetupFunc(void);
 
 /* string.c */
 extern struct LibraryFunction StringFunctions[];
-void StringSetupFunc(Picoc *pc);
+void StringSetupFunc(void);
 
 /* stdlib.c */
 extern struct LibraryFunction StdlibFunctions[];
-void StdlibSetupFunc(Picoc *pc);
+void StdlibSetupFunc(void);
 
 /* time.c */
 extern const char StdTimeDefs[];
 extern struct LibraryFunction StdTimeFunctions[];
-void StdTimeSetupFunc(Picoc *pc);
+void StdTimeSetupFunc(void);
 
 /* errno.c */
-void StdErrnoSetupFunc(Picoc *pc);
+void StdErrnoSetupFunc(void);
 
 /* ctype.c */
 extern struct LibraryFunction StdCtypeFunctions[];
 
 /* stdbool.c */
 extern const char StdboolDefs[];
-void StdboolSetupFunc(Picoc *pc);
+void StdboolSetupFunc(void);
 
 /* unistd.c */
-extern const char UnistdDefs[];
-extern struct LibraryFunction UnistdFunctions[];
-void UnistdSetupFunc(Picoc *pc);
+//extern const char UnistdDefs[];
+//extern struct LibraryFunction UnistdFunctions[];
+//void UnistdSetupFunc(void);
 
 #endif /* INTERPRETER_H */

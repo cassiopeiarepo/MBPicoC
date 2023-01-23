@@ -3,47 +3,65 @@
 #ifndef PICOC_H
 #define PICOC_H
 
+//#define BLINKY
+//#define NO_HASH_INCLUDE
+
+//#define DEBUG_LEXER
+
 /* picoc version number */
 #ifdef VER
 #define PICOC_VERSION "v2.2 beta r" VER         /* VER is the subversion version number, obtained via the Makefile */
 #else
 #define PICOC_VERSION "v2.2"
 #endif
+#define BUFSIZE 12000
+#define HEAP_SIZE 45000
+void sendContent(char *it); 
+extern void send(char *it);
+extern void sendc(char it);
+extern void sendln(char * it);
+extern void sprint(char * what);
 
 /* handy definitions */
 #ifndef TRUE
 #define TRUE 1
 #define FALSE 0
 #endif
-
-#include "interpreter.h"
-
-
-#if defined(UNIX_HOST) || defined(WIN32)
+#define UNIX_HOST
+#ifdef WIN32
 #include <setjmp.h>
-
+/* mark where to end the program for platforms which require this */
+extern jmp_buf PicocExitBuf;
 /* this has to be a macro, otherwise errors will occur due to the stack being corrupt */
-#define PicocPlatformSetExitPoint(pc) setjmp((pc)->PicocExitBuf)
+#define PicocPlatformSetExitPoint() setjmp(PicocExitBuf)
 #endif
 
-#ifdef SURVEYOR_HOST
-/* mark where to end the program for platforms which require this */
-extern int PicocExitBuf[];
+#ifdef UNIX_HOST
 
-#define PicocPlatformSetExitPoint(pc) setjmp((pc)->PicocExitBuf)
+#define PICOC_STACK_SIZE 45000
+#include <setjmp.h>
+#define BUILTIN_MINI_STDLIB
+/* mark where to end the program for platforms which require this */
+extern jmp_buf PicocExitBuf;
+
+/* this has to be a macro, otherwise errors will occur due to the stack being corrupt */
+#define PicocPlatformSetExitPoint() setjmp(PicocExitBuf)
 #endif
 
 /* parse.c */
-void PicocParse(Picoc *pc, const char *FileName, const char *Source, int SourceLen, int RunIt, int CleanupNow, int CleanupSource, int EnableDebugger);
-void PicocParseInteractive(Picoc *pc);
+void PicocParse(const char *FileName, const char *Source, int SourceLen, int RunIt, int CleanupNow, int CleanupSource, int EnableDebugger);
+void PicocParseInteractive();
 
 /* platform.c */
-void PicocCallMain(Picoc *pc, int argc, char **argv);
-void PicocInitialise(Picoc *pc, int StackSize);
-void PicocCleanup(Picoc *pc);
-void PicocPlatformScanFile(Picoc *pc, const char *FileName);
+void PicocCallMain(int argc, char **argv);
+void PicocInitialise(int StackSize);
+void PicocCleanup();
+void PicocPlatformScanFile(const char *FileName);
+
+extern int PicocExitValue;
+
 
 /* include.c */
-void PicocIncludeAllSystemHeaders(Picoc *pc);
+void PicocIncludeAllSystemHeaders(int inctmpl);
 
 #endif /* PICOC_H */

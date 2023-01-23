@@ -1,11 +1,10 @@
 /* stdlib.h library for large systems - small embedded systems use clibrary.c instead */
 #include <stdio.h>
-#include <unistd.h>
 #include <limits.h>
-#include <fcntl.h>
-#include "../interpreter.h"
+#include "interpreter.h"
 
 #ifndef BUILTIN_MINI_STDLIB
+#include <unistd.h>
 
 static int ZeroValue = 0;
 
@@ -83,12 +82,7 @@ void UnistdFchdir(struct ParseState *Parser, struct Value *ReturnValue, struct V
 
 void UnistdFdatasync(struct ParseState *Parser, struct Value *ReturnValue, struct Value **Param, int NumArgs)
 {
-#ifndef F_FULLSYNC
     ReturnValue->Val->Integer = fdatasync(Param[0]->Val->Integer);
-#else
-    /* Mac OS X equivalent */
-    ReturnValue->Val->Integer = fcntl(Param[0]->Val->Integer, F_FULLFSYNC);
-#endif
 }
 
 void UnistdFork(struct ParseState *Parser, struct Value *ReturnValue, struct Value **Param, int NumArgs)
@@ -488,17 +482,17 @@ struct LibraryFunction UnistdFunctions[] =
 };
 
 /* creates various system-dependent definitions */
-void UnistdSetupFunc(Picoc *pc)
+void UnistdSetupFunc(void)
 {
     /* define NULL */
-    if (!VariableDefined(pc, TableStrRegister(pc, "NULL")))
-        VariableDefinePlatformVar(pc, NULL, "NULL", &pc->IntType, (union AnyValue *)&ZeroValue, FALSE);
+    if (!VariableDefined(TableStrRegister("NULL")))
+        VariableDefinePlatformVar(NULL, "NULL", &IntType, (union AnyValue *)&ZeroValue, FALSE);
 
     /* define optarg and friends */
-    VariableDefinePlatformVar(pc, NULL, "optarg", pc->CharPtrType, (union AnyValue *)&optarg, TRUE);
-    VariableDefinePlatformVar(pc, NULL, "optind", &pc->IntType, (union AnyValue *)&optind, TRUE);
-    VariableDefinePlatformVar(pc, NULL, "opterr", &pc->IntType, (union AnyValue *)&opterr, TRUE);
-    VariableDefinePlatformVar(pc, NULL, "optopt", &pc->IntType, (union AnyValue *)&optopt, TRUE);
+    VariableDefinePlatformVar(NULL, "optarg", CharPtrType, (union AnyValue *)&optarg, TRUE);
+    VariableDefinePlatformVar(NULL, "optind", &IntType, (union AnyValue *)&optind, TRUE);
+    VariableDefinePlatformVar(NULL, "opterr", &IntType, (union AnyValue *)&opterr, TRUE);
+    VariableDefinePlatformVar(NULL, "optopt", &IntType, (union AnyValue *)&optopt, TRUE);
 }
 
 #endif /* !BUILTIN_MINI_STDLIB */
